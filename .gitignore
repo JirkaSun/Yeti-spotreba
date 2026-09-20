@@ -1,0 +1,16 @@
+# Konfigurace s citlivými údaji
+config.php
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Logy
+*.log
+
+# Editor
+.idea
+.vscode
+.zed
+.nova
+.cursor/
