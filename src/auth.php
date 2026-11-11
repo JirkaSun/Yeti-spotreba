@@ -5,6 +5,15 @@ declare(strict_types=1);
 function sessionStart(): void
 {
     if (session_status() === PHP_SESSION_NONE) {
+        $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+        session_set_cookie_params([
+            'lifetime' => 0,
+            'path'     => '/',
+            'secure'   => $https,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
         session_start();
     }
 }
@@ -23,6 +32,65 @@ function authRequired(): void
     }
 }
 
+const LOGIN_MAX_POKUSU = 5;
+const LOGIN_OKNO_MIN   = 15;
+
+/** Počet neúspěšných pokusů za poslední okno pro danou IP nebo identifikátor. */
+function loginPokusy(string $identifikator): int
+{
+    try {
+        $stmt = db()->prepare(
+            'SELECT COUNT(*) FROM login_pokusy
+             WHERE cas > (NOW() - INTERVAL ' . LOGIN_OKNO_MIN . ' MINUTE)
+               AND (ip = ? OR identifikator = ?)'
+        );
+        $stmt->execute([clientIp(), mb_strtolower(mb_substr($identifikator, 0, 255))]);
+        return (int)$stmt->fetchColumn();
+    } catch (PDOException) {
+        return 0; // tabulka chybí (nespuštěná migrace 011) — nezablokuj přihlášení
+    }
+}
+
+function loginZaznamenejSelhani(string $identifikator): void
+{
+    try {
+        db()->prepare('INSERT INTO login_pokusy (ip, identifikator) VALUES (?, ?)')
+            ->execute([clientIp(), mb_strtolower(mb_substr($identifikator, 0, 255))]);
+    } catch (PDOException) {
+    }
+}
+
+function loginVymazPokusy(string $identifikator): void
+{
+    try {
+        db()->prepare('DELETE FROM login_pokusy WHERE ip = ? OR identifikator = ?')
+            ->execute([clientIp(), mb_strtolower(mb_substr($identifikator, 0, 255))]);
+        db()->exec('DELETE FROM login_pokusy WHERE cas < (NOW() - INTERVAL 1 DAY)');
+    } catch (PDOException) {
+    }
+}
+
+function clientIp(): string
+{
+    return substr($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0', 0, 45);
+}
+
+// ── CSRF ──────────────────────────────────────────────────────────────────────
+function csrfToken(): string
+{
+    sessionStart();
+    if (empty($_SESSION['csrf'])) {
+        $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf'];
+}
+
+function csrfOver(): bool
+{
+    $poslany = (string)($_POST['csrf'] ?? '');
+    return $poslany !== '' && hash_equals(csrfToken(), $poslany);
+}
+
 function login(string $identifikator, string $password): bool
 {
     $stmt = db()->prepare(
@@ -36,8 +104,10 @@ function login(string $identifikator, string $password): bool
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['heslo'])) {
+        loginZaznamenejSelhani($identifikator);
         return false;
     }
+    loginVymazPokusy($identifikator);
 
     sessionStart();
     session_regenerate_id(true);

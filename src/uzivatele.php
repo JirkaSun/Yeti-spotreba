@@ -301,7 +301,22 @@ function handleUzivateleSmazat(string $id): void
     $aktualni = auth()['id'];
 
     if ((int)$id === $aktualni) {
-        flash('ok', 'Nelze smazat přihlášeného uživatele.');
+        flash('err', 'Nelze smazat přihlášeného uživatele.');
+        header('Location: /uzivatele');
+        exit;
+    }
+
+    $cil = uzivatelNajdi((int)$id);
+    if (!$cil) { http_response_code(404); return; }
+
+    $zavislosti = 0;
+    foreach (['jizdy', 'tankovani', 'servis'] as $tabulka) {
+        $stmt = db()->prepare("SELECT COUNT(*) FROM $tabulka WHERE uzivatel_id = ?");
+        $stmt->execute([(int)$id]);
+        $zavislosti += (int)$stmt->fetchColumn();
+    }
+    if ($zavislosti > 0) {
+        flash('err', "Uživatele nelze smazat — má $zavislosti navázaných záznamů (jízdy, tankování, servis).");
         header('Location: /uzivatele');
         exit;
     }
@@ -330,8 +345,8 @@ function uzivatelUloz(int $id, array $post): ?string
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return 'Neplatný formát e-mailu.';
     }
-    if ($id === 0 && strlen($heslo) < 6) {
-        return 'Heslo musí mít alespoň 6 znaků.';
+    if ($id === 0 && strlen($heslo) < 8) {
+        return 'Heslo musí mít alespoň 8 znaků.';
     }
 
     // Ověř unikátnost e-mailu
@@ -366,7 +381,7 @@ function uzivatelUloz(int $id, array $post): ?string
         $stmt->execute([$jmeno, $prijmeni, $prezdivka, $telefon, $email, password_hash($heslo, PASSWORD_BCRYPT), $role]);
     } else {
         if (strlen($heslo) > 0) {
-            if (strlen($heslo) < 6) return 'Heslo musí mít alespoň 6 znaků.';
+            if (strlen($heslo) < 8) return 'Heslo musí mít alespoň 8 znaků.';
             $stmt = db()->prepare(
                 'UPDATE uzivatele SET jmeno=?, prijmeni=?, prezdivka=?, telefon=?, email=?, heslo=?, role=? WHERE id=?'
             );

@@ -373,7 +373,7 @@ function jizdaUloz(int $id, array $post): ?string
     if (!isset($post['km_start']) || $post['km_start'] === '') return 'Km při odjezdu je povinné.';
 
     $kmStart = (int)$post['km_start'];
-    $kmKonec = ($post['km_konec'] !== '' && $post['km_konec'] !== null)
+    $kmKonec = (($post['km_konec'] ?? '') !== '')
         ? (int)$post['km_konec']
         : null;
 
@@ -381,8 +381,17 @@ function jizdaUloz(int $id, array $post): ?string
         return 'Km při příjezdu musí být větší než km při odjezdu.';
     }
 
-    $datumOdjezdDb  = date('Y-m-d H:i:s', strtotime($datumOdjezdu));
-    $datumPrijezdDb = $datumPrijezdu ? date('Y-m-d H:i:s', strtotime($datumPrijezdu)) : null;
+    $tsOdjezd  = strtotime($datumOdjezdu);
+    $tsPrijezd = $datumPrijezdu ? strtotime($datumPrijezdu) : null;
+    if ($tsOdjezd === false || $tsPrijezd === false) return 'Neplatné datum.';
+    if ($tsPrijezd !== null && $tsPrijezd < $tsOdjezd) return 'Příjezd nemůže být dříve než odjezd.';
+
+    $stmt = db()->prepare('SELECT (SELECT COUNT(*) FROM auta WHERE id = ?) + (SELECT COUNT(*) FROM uzivatele WHERE id = ?)');
+    $stmt->execute([$autoId, $uzivId]);
+    if ((int)$stmt->fetchColumn() !== 2) return 'Vybrané auto nebo řidič neexistuje.';
+
+    $datumOdjezdDb  = date('Y-m-d H:i:s', $tsOdjezd);
+    $datumPrijezdDb = $tsPrijezd !== null ? date('Y-m-d H:i:s', $tsPrijezd) : null;
 
     if ($id === 0) {
         $stmt = db()->prepare(

@@ -125,24 +125,29 @@ function handleAutaSeznam(): void
         'SELECT id, vyrobce, model, rok_vyroby, spz, palivo, barva FROM auta ORDER BY vyrobce, model'
     )->fetchAll();
 
-    $ok    = flashGet('ok');
-    $okTpl = $ok ? "<div class=\"mb-6 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700\">{$ok}</div>" : '';
+    $ok     = flashGet('ok');
+    $err    = flashGet('err');
+    $okTpl  = $ok  ? "<div class=\"mb-6 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700\">" . htmlspecialchars($ok) . "</div>" : '';
+    $okTpl .= $err ? "<div class=\"mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600\">" . htmlspecialchars($err) . "</div>" : '';
+    $admin  = isAdmin();
 
-    renderPage('Auta', function () use ($auta, $okTpl) {
+    renderPage('Auta', function () use ($auta, $okTpl, $admin) {
         echo $okTpl;
+        $novyBtn = $admin ? '<a href="/auta/nove" class="btn-primary">+ Přidat auto</a>' : '';
         echo <<<HTML
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-2xl font-bold text-slate-800">Auta</h1>
-            <a href="/auta/nove" class="btn-primary">+ Přidat auto</a>
+            $novyBtn
         </div>
         HTML;
 
         if (!$auta) {
+            $prvniBtn = $admin ? '<a href="/auta/nove" class="mt-4 inline-block text-indigo-500 hover:text-indigo-700 text-sm">Přidat první auto →</a>' : '';
             echo <<<HTML
             <div class="card text-center py-16 text-slate-400">
                 <p class="text-4xl mb-3">🚗</p>
                 <p class="font-medium">Zatím žádná auta.</p>
-                <a href="/auta/nove" class="mt-4 inline-block text-indigo-500 hover:text-indigo-700 text-sm">Přidat první auto →</a>
+                $prvniBtn
             </div>
             HTML;
             return;
@@ -163,6 +168,13 @@ function handleAutaSeznam(): void
             $badge  = palivoBadge($a['palivo']);
             $barva  = $a['barva'] ? htmlspecialchars($a['barva']) : '<span class="text-slate-300">—</span>';
             $id     = (int)$a['id'];
+            $akce   = $admin ? <<<ACTIONS
+                    <a href="/auta/{$id}/upravit" class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">Upravit</a>
+                    <form method="POST" action="/auta/{$id}/smazat"
+                          onsubmit="return confirm('Opravdu smazat $nazev?')" class="inline">
+                        <button type="submit" class="text-red-400 hover:text-red-600 text-xs">Smazat</button>
+                    </form>
+                    ACTIONS : '';
 
             echo <<<HTML
             <tr class="hover:bg-slate-50/60 transition-colors">
@@ -174,11 +186,7 @@ function handleAutaSeznam(): void
                 <td class="px-6 py-4">$badge</td>
                 <td class="px-6 py-4 text-slate-500 text-xs">$barva</td>
                 <td class="px-6 py-4 text-right space-x-4">
-                    <a href="/auta/{$id}/upravit" class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">Upravit</a>
-                    <form method="POST" action="/auta/{$id}/smazat"
-                          onsubmit="return confirm('Opravdu smazat $nazev?')" class="inline">
-                        <button type="submit" class="text-red-400 hover:text-red-600 text-xs">Smazat</button>
-                    </form>
+                    $akce
                 </td>
             </tr>
             HTML;
@@ -191,6 +199,11 @@ function handleAutaSeznam(): void
 function handleAutaNove(): void
 {
     authRequired();
+    if (!isAdmin()) {
+        flash('err', 'Správa aut je dostupná jen administrátorům.');
+        header('Location: /auta');
+        exit;
+    }
     renderPage('Přidat auto', function () {
         echo '<div class="mb-6"><h1 class="text-2xl font-bold text-slate-800">Přidat auto</h1></div>';
         echo '<div class="card max-w-2xl">';
@@ -202,6 +215,11 @@ function handleAutaNove(): void
 function handleAutaNovePost(): void
 {
     authRequired();
+    if (!isAdmin()) {
+        flash('err', 'Správa aut je dostupná jen administrátorům.');
+        header('Location: /auta');
+        exit;
+    }
 
     $chyba = autoUloz(0, $_POST);
     if ($chyba) {
@@ -222,6 +240,11 @@ function handleAutaNovePost(): void
 function handleAutaUpravit(string $id): void
 {
     authRequired();
+    if (!isAdmin()) {
+        flash('err', 'Správa aut je dostupná jen administrátorům.');
+        header('Location: /auta');
+        exit;
+    }
     $a = autoNajdi((int)$id);
     if (!$a) { http_response_code(404); return; }
 
@@ -237,6 +260,11 @@ function handleAutaUpravit(string $id): void
 function handleAutaUpravitPost(string $id): void
 {
     authRequired();
+    if (!isAdmin()) {
+        flash('err', 'Správa aut je dostupná jen administrátorům.');
+        header('Location: /auta');
+        exit;
+    }
     $a = autoNajdi((int)$id);
     if (!$a) { http_response_code(404); return; }
 
@@ -261,6 +289,27 @@ function handleAutaUpravitPost(string $id): void
 function handleAutaSmazat(string $id): void
 {
     authRequired();
+    if (!isAdmin()) {
+        flash('err', 'Správa aut je dostupná jen administrátorům.');
+        header('Location: /auta');
+        exit;
+    }
+    $a = autoNajdi((int)$id);
+    if (!$a) { http_response_code(404); return; }
+
+    // Auto s navázanými záznamy nelze smazat (cizí klíče)
+    $zavislosti = 0;
+    foreach (['jizdy', 'tankovani', 'servis'] as $tabulka) {
+        $stmt = db()->prepare("SELECT COUNT(*) FROM $tabulka WHERE auto_id = ?");
+        $stmt->execute([(int)$id]);
+        $zavislosti += (int)$stmt->fetchColumn();
+    }
+    if ($zavislosti > 0) {
+        flash('err', "Auto nelze smazat — má $zavislosti navázaných záznamů (jízdy, tankování, servis).");
+        header('Location: /auta');
+        exit;
+    }
+
     db()->prepare('DELETE FROM auta WHERE id = ?')->execute([(int)$id]);
     flash('ok', 'Auto bylo smazáno.');
     header('Location: /auta');

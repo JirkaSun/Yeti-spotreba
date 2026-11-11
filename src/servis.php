@@ -377,13 +377,27 @@ function servisUloz(int $id, array $post): ?string
     $typ     = in_array($post['typ'] ?? '', $typy, true) ? $post['typ'] : 'ostatni';
     $popis   = trim($post['popis']         ?? '') ?: null;
     $misto   = trim($post['servisni_misto'] ?? '') ?: null;
-    $cena    = $post['cena'] !== '' ? (float)$post['cena'] : null;
-    $dalsiKm = $post['dalsi_servis_km'] !== '' ? (int)$post['dalsi_servis_km'] : null;
+    $cena    = ($post['cena'] ?? '') !== '' ? (float)$post['cena'] : null;
+    $dalsiKm = ($post['dalsi_servis_km'] ?? '') !== '' ? (int)$post['dalsi_servis_km'] : null;
     $dalsiDat = trim($post['dalsi_servis_datum'] ?? '') ?: null;
 
     if (!$autoId || !$uzivId) return 'Vyberte auto a technika.';
     if (!$datum)              return 'Datum servisu je povinné.';
     if ($kmStav <= 0)         return 'Stav tachometru musí být kladné číslo.';
+    if ($cena !== null && $cena < 0) return 'Cena nemůže být záporná.';
+
+    $ts = strtotime($datum);
+    if ($ts === false)        return 'Neplatné datum servisu.';
+    $datum = date('Y-m-d', $ts);
+    if ($dalsiDat !== null) {
+        $tsDalsi = strtotime($dalsiDat);
+        if ($tsDalsi === false) return 'Neplatné datum příštího servisu.';
+        $dalsiDat = date('Y-m-d', $tsDalsi);
+    }
+
+    $stmt = db()->prepare('SELECT (SELECT COUNT(*) FROM auta WHERE id = ?) + (SELECT COUNT(*) FROM uzivatele WHERE id = ?)');
+    $stmt->execute([$autoId, $uzivId]);
+    if ((int)$stmt->fetchColumn() !== 2) return 'Vybrané auto nebo technik neexistuje.';
 
     $cols = ['auto_id', 'uzivatel_id', 'datum', 'km_stav', 'typ', 'popis', 'servisni_misto', 'cena', 'dalsi_servis_km', 'dalsi_servis_datum'];
     $vals = [$autoId, $uzivId, $datum, $kmStav, $typ, $popis, $misto, $cena, $dalsiKm, $dalsiDat];

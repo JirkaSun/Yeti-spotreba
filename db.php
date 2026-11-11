@@ -11,7 +11,7 @@ function db(): PDO
     }
 
     // DBngin používá Unix socket — fallback na TCP pokud socket neexistuje
-    if (file_exists(DB_SOCKET)) {
+    if (DB_SOCKET !== '' && file_exists(DB_SOCKET)) {
         $dsn = sprintf(
             'mysql:unix_socket=%s;dbname=%s;charset=%s',
             DB_SOCKET,

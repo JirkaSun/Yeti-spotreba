@@ -489,17 +489,33 @@ function tankUloz(int $id, array $post): ?string
     $plnaNadrz = isset($post['plna_nadrz']) ? 1 : 0;
     $poznamka  = trim($post['poznamka'] ?? '') ?: null;
     $pumkaNazev = trim($post['pumpa_nazev'] ?? '') ?: null;
-    $pumpaLat  = $post['pumpa_lat'] !== '' ? (float)$post['pumpa_lat'] : null;
-    $pumpaLng  = $post['pumpa_lng'] !== '' ? (float)$post['pumpa_lng'] : null;
+    $pumpaLat  = ($post['pumpa_lat'] ?? '') !== '' ? (float)$post['pumpa_lat'] : null;
+    $pumpaLng  = ($post['pumpa_lng'] ?? '') !== '' ? (float)$post['pumpa_lng'] : null;
 
     if (!$autoId || !$uzivId)   return 'Vyberte auto a řidiče.';
     if (!$datumCas)             return 'Datum a čas jsou povinné.';
     if ($kmStav <= 0)           return 'Stav tachometru musí být kladné číslo.';
     if ($litry <= 0)            return 'Počet litrů musí být kladné číslo.';
+    if ($cenaLitr <= 0)         return 'Cena za litr musí být kladné číslo.';
     if ($celkCena <= 0)         return 'Celková cena musí být kladné číslo.';
 
+    $ts = strtotime($datumCas);
+    if ($ts === false)          return 'Neplatné datum a čas.';
+    if ($pumpaLat !== null && ($pumpaLat < -90 || $pumpaLat > 90))    return 'Neplatná zeměpisná šířka.';
+    if ($pumpaLng !== null && ($pumpaLng < -180 || $pumpaLng > 180))  return 'Neplatná zeměpisná délka.';
+
+    // Auto a řidič musí existovat
+    $stmt = db()->prepare('SELECT (SELECT COUNT(*) FROM auta WHERE id = ?) + (SELECT COUNT(*) FROM uzivatele WHERE id = ?)');
+    $stmt->execute([$autoId, $uzivId]);
+    if ((int)$stmt->fetchColumn() !== 2) return 'Vybrané auto nebo řidič neexistuje.';
+
+    // Celková cena se musí shodovat s litry × cenou za litr (tolerance 1 Kč na zaokrouhlení)
+    if (abs($litry * $cenaLitr - $celkCena) > 1.0) {
+        return 'Celková cena neodpovídá litrům × ceně za litr.';
+    }
+
     // Převod datetime-local na MySQL formát
-    $datumCasDb = date('Y-m-d H:i:s', strtotime($datumCas));
+    $datumCasDb = date('Y-m-d H:i:s', $ts);
 
     $cols = ['auto_id', 'uzivatel_id', 'datum_cas', 'km_stav', 'litry', 'cena_za_litr', 'celkova_cena', 'palivo', 'plna_nadrz', 'poznamka', 'pumpa_nazev', 'pumpa_lat', 'pumpa_lng'];
     $vals = [$autoId, $uzivId, $datumCasDb, $kmStav, $litry, $cenaLitr, $celkCena, $palivo, $plnaNadrz, $poznamka, $pumkaNazev, $pumpaLat, $pumpaLng];
