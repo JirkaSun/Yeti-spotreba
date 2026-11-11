@@ -25,6 +25,13 @@ Evidence jízd, tankování a servisu pro více aut.
 - Hlavní entita: `auta` (id, nazev, spz, ...)
 - Záznamy: `jizdy`, `tankovani`, `servis`
 
+## Role a bezpečnost
+- Role `admin` / `ridic`; `isAdmin()`, `canEditRecord($ownerId)`, `authRequired()` v `src/auth.php`
+- Správa aut a uživatelů je jen pro admina
+- CSRF: token se do formulářů `method="POST"` vkládá automaticky přes output buffer v `public/index.php`, ověřuje se v routeru
+- Flash zprávy: `flash('ok'|'err', ...)` a `flashGet()`
+- Migrace jsou v `db/migrations/` (číslované, spouštět postupně)
+
 ## Konvence
 - `declare(strict_types=1)` v každém souboru
 - snake_case pro DB sloupce, camelCase pro PHP proměnné
